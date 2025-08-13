@@ -52,9 +52,13 @@
 // Workaround for pre gcc 5 libstdc++.
 #    include <memory>  // std::allocator_traits
 #  endif
-#  include <stdexcept>     // std::runtime_error
-#  include <string>        // std::string
-#  include <system_error>  // std::system_error
+#  if FMT_USE_EXCEPTIONS
+#    include <stdexcept>     // std::runtime_error
+#    include <system_error>  // std::system_error
+#  endif
+#  ifdef FMT_STRING_INCLUDE
+#    include FMT_STRING_INCLUDE  // std::string
+#  endif
 
 // Check FMT_CPLUSPLUS to avoid a warning in MSVC.
 #  if FMT_HAS_INCLUDE(<bit>) && FMT_CPLUSPLUS > 201703L
@@ -180,6 +184,22 @@ FMT_END_NAMESPACE
 #  endif  // FMT_USE_EXCEPTIONS
 #endif    // FMT_THROW
 
+#if FMT_USE_EXCEPTIONS
+#  define FMT_THROW_RUNTIME_ERROR(x) FMT_THROW(std::runtime_error(x))
+#  define FMT_THROW_SYSTEM_ERROR(e, ...) FMT_THROW(system_error(e, __VA_ARGS__))
+#  define FMT_THROW_FORMAT_ERROR(x) FMT_THROW(format_error(x))
+#  define FMT_THROW_BAD_ALLOC() FMT_THROW(std::bad_alloc())
+#else
+#  define FMT_THROW_RUNTIME_ERROR(x) \
+    ::fmt::detail::assert_fail(__FILE__, __LINE__, (x))
+#  define FMT_THROW_SYSTEM_ERROR(e, ...) \
+    ::fmt::detail::assert_fail_system_error(e, __FILE__, __LINE__, __VA_ARGS__);
+#  define FMT_THROW_FORMAT_ERROR(x) \
+    ::fmt::detail::assert_fail(__FILE__, __LINE__, (x))
+#  define FMT_THROW_BAD_ALLOC() \
+    ::fmt::detail::assert_fail(__FILE__, __LINE__, "std::bad_alloc")
+#endif
+
 // Defining FMT_REDUCE_INT_INSTANTIATIONS to 1, will reduce the number of
 // integer formatter template instantiations to just one by only using the
 // largest integer type. This results in a reduction in binary size but will
@@ -190,11 +210,25 @@ FMT_END_NAMESPACE
 
 FMT_BEGIN_NAMESPACE
 
+template <typename Char, typename Traits = std::char_traits<Char>, typename Allocator = std::allocator<Char>>
+using basic_string = FMT_BASIC_STRING<Char, Traits, Allocator>;
+using string = basic_string<char>;
+using wstring = basic_string<wchar_t>;
+
 template <typename Char, typename Traits, typename Allocator>
-struct is_contiguous<std::basic_string<Char, Traits, Allocator>>
+struct is_contiguous<fmt::basic_string<Char, Traits, Allocator>>
     : std::true_type {};
 
 namespace detail {
+
+template <typename... T>
+FMT_NORETURN void assert_fail_system_error(
+    int err, const char* file, int line, format_string<T...> fmt, T&&... args) {
+  print(stderr, "{}:{}: assertion failed: ", file, line);
+  print(stderr, fmt, static_cast<T>(args)...);
+  print(stderr, ": {}", static_cast<const char *>(std::strerror(err)));
+  abort();
+}
 
 // __builtin_clz is broken in clang with Microsoft codegen:
 // https://github.com/fmtlib/fmt/issues/519.
@@ -746,7 +780,7 @@ template <typename T> struct allocator : private std::decay<void> {
   T* allocate(size_t n) {
     FMT_ASSERT(n <= max_value<size_t>() / sizeof(T), "");
     T* p = static_cast<T*>(std::malloc(n * sizeof(T)));
-    if (!p) FMT_THROW(std::bad_alloc());
+    if (!p) FMT_THROW_BAD_ALLOC();
     return p;
   }
 
@@ -780,7 +814,7 @@ enum { inline_buffer_size = 500 };
  *     fmt::format_to(std::back_inserter(out), "The answer is {}.", 42);
  *
  * This will append "The answer is 42." to `out`. The buffer content can be
- * converted to `std::string` with `to_string(out)`.
+ * converted to `fmt::string` with `to_string(out)`.
  */
 template <typename T, size_t SIZE = inline_buffer_size,
           typename Allocator = detail::allocator<T>>
@@ -920,9 +954,9 @@ using memory_buffer = basic_memory_buffer<char>;
 
 template <size_t SIZE>
 FMT_NODISCARD auto to_string(const basic_memory_buffer<char, SIZE>& buf)
-    -> std::string {
+    -> fmt::string {
   auto size = buf.size();
-  detail::assume(size < std::string().max_size());
+  detail::assume(size < fmt::string().max_size());
   return {buf.data(), size};
 }
 
@@ -951,14 +985,14 @@ class writer {
 
 class string_buffer {
  private:
-  std::string str_;
-  detail::container_buffer<std::string> buf_;
+  fmt::string str_;
+  detail::container_buffer<fmt::string> buf_;
 
  public:
   inline string_buffer() : buf_(str_) {}
 
   inline operator writer() { return buf_; }
-  inline std::string& str() { return str_; }
+  inline fmt::string& str() { return str_; }
 };
 
 template <typename T, size_t SIZE, typename Allocator>
@@ -968,11 +1002,13 @@ struct is_contiguous<basic_memory_buffer<T, SIZE, Allocator>> : std::true_type {
 // Suppress a misleading warning in older versions of clang.
 FMT_PRAGMA_CLANG(diagnostic ignored "-Wweak-vtables")
 
+#if FMT_USE_EXCEPTIONS
 /// An error reported from a formatting function.
 class FMT_SO_VISIBILITY("default") format_error : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
 };
+#endif
 
 class loc_value;
 
@@ -1157,7 +1193,7 @@ template <> constexpr auto digits10<int128_opt>() noexcept -> int { return 38; }
 template <> constexpr auto digits10<uint128_t>() noexcept -> int { return 38; }
 
 template <typename Char> struct thousands_sep_result {
-  std::string grouping;
+  fmt::string grouping;
   Char thousands_sep;
 };
 
@@ -1308,7 +1344,7 @@ class utf8_to_utf16 {
   }
   inline auto size() const -> size_t { return buffer_.size() - 1; }
   inline auto c_str() const -> const wchar_t* { return &buffer_[0]; }
-  inline auto str() const -> std::wstring { return {&buffer_[0], size()}; }
+  inline auto str() const -> fmt::wstring { return {&buffer_[0], size()}; }
 };
 
 enum class to_utf8_error_policy { abort, replace };
@@ -1325,13 +1361,13 @@ template <typename WChar, typename Buffer = memory_buffer> class to_utf8 {
     static_assert(sizeof(WChar) == 2 || sizeof(WChar) == 4,
                   "Expect utf16 or utf32");
     if (!convert(s, policy))
-      FMT_THROW(std::runtime_error(sizeof(WChar) == 2 ? "invalid utf16"
-                                                      : "invalid utf32"));
+      FMT_THROW_RUNTIME_ERROR(sizeof(WChar) == 2 ? "invalid utf16"
+                                                 : "invalid utf32");
   }
   operator string_view() const { return string_view(&buffer_[0], size()); }
   auto size() const -> size_t { return buffer_.size() - 1; }
   auto c_str() const -> const char* { return &buffer_[0]; }
-  auto str() const -> std::string { return std::string(&buffer_[0], size()); }
+  auto str() const -> fmt::string { return fmt::string(&buffer_[0], size()); }
 
   // Performs conversion returning a bool instead of throwing exception on
   // conversion error. This method may still throw in case of memory allocation
@@ -1877,11 +1913,11 @@ FMT_CONSTEXPR auto write(OutputIt out, Char value, const format_specs& specs,
 
 template <typename Char> class digit_grouping {
  private:
-  std::string grouping_;
-  std::basic_string<Char> thousands_sep_;
+  fmt::string grouping_;
+  fmt::basic_string<Char> thousands_sep_;
 
   struct next_state {
-    std::string::const_iterator group;
+    fmt::string::const_iterator group;
     int pos;
   };
   auto initial_state() const -> next_state { return {grouping_.begin(), 0}; }
@@ -1905,7 +1941,7 @@ template <typename Char> class digit_grouping {
     grouping_ = sep.grouping;
     if (sep.thousands_sep) thousands_sep_.assign(1, sep.thousands_sep);
   }
-  digit_grouping(std::string grouping, std::basic_string<Char> sep)
+  digit_grouping(fmt::string grouping, fmt::basic_string<Char> sep)
       : grouping_(std::move(grouping)), thousands_sep_(std::move(sep)) {}
 
   auto has_separator() const -> bool { return !thousands_sep_.empty(); }
@@ -2029,9 +2065,9 @@ FMT_CONSTEXPR auto make_write_int_arg(T value, sign s)
 template <typename Char = char> struct loc_writer {
   basic_appender<Char> out;
   const format_specs& specs;
-  std::basic_string<Char> sep;
-  std::string grouping;
-  std::basic_string<Char> decimal_point;
+  fmt::basic_string<Char> sep;
+  fmt::string grouping;
+  fmt::basic_string<Char> decimal_point;
 
   template <typename T, FMT_ENABLE_IF(is_integer<T>::value)>
   auto operator()(T value) -> bool {
@@ -2655,7 +2691,7 @@ inline FMT_CONSTEXPR20 void adjust_precision(int& precision, int exp10) {
   // Adjust fixed precision by exponent because it is relative to decimal
   // point.
   if (exp10 > 0 && precision > max_value<int>() - exp10)
-    FMT_THROW(format_error("number is too big"));
+    FMT_THROW_FORMAT_ERROR("number is too big");
   precision += exp10;
 }
 
@@ -3918,13 +3954,14 @@ class loc_value {
   }
 };
 
+#if FMT_USE_LOCALE
 // A locale facet that formats values in UTF-8.
 // It is parameterized on the locale to avoid the heavy <locale> include.
 template <typename Locale> class format_facet : public Locale::facet {
  private:
-  std::string separator_;
-  std::string grouping_;
-  std::string decimal_point_;
+  fmt::string separator_;
+  fmt::string grouping_;
+  fmt::string decimal_point_;
 
  protected:
   virtual auto do_put(appender out, loc_value val,
@@ -3934,8 +3971,8 @@ template <typename Locale> class format_facet : public Locale::facet {
   static FMT_API typename Locale::id id;
 
   explicit format_facet(Locale& loc);
-  explicit format_facet(string_view sep = "", std::string grouping = "\3",
-                        std::string decimal_point = ".")
+  explicit format_facet(string_view sep = "", fmt::string grouping = "\3",
+                        fmt::string decimal_point = ".")
       : separator_(sep.data(), sep.size()),
         grouping_(grouping),
         decimal_point_(decimal_point) {}
@@ -3945,6 +3982,7 @@ template <typename Locale> class format_facet : public Locale::facet {
     return do_put(out, val, specs);
   }
 };
+#endif // FMT_USE_LOCALE
 
 #define FMT_FORMAT_AS(Type, Base)                                   \
   template <typename Char>                                          \
@@ -3971,7 +4009,7 @@ template <typename Char, size_t N>
 struct formatter<Char[N], Char> : formatter<basic_string_view<Char>, Char> {};
 
 template <typename Char, typename Traits, typename Allocator>
-class formatter<std::basic_string<Char, Traits, Allocator>, Char>
+class formatter<fmt::basic_string<Char, Traits, Allocator>, Char>
     : public formatter<basic_string_view<Char>, Char> {};
 
 template <int N, typename Char>
@@ -4246,8 +4284,8 @@ class format_int {
     return str_;
   }
 
-  /// Returns the content of the output buffer as an `std::string`.
-  inline auto str() const -> std::string { return {str_, size()}; }
+  /// Returns the content of the output buffer as a `fmt::string`.
+  inline auto str() const -> fmt::string { return {str_, size()}; }
 };
 
 #define FMT_STRING_IMPL(s, base)                                              \
@@ -4272,21 +4310,22 @@ class format_int {
  * **Example**:
  *
  *     // A compile-time error because 'd' is an invalid specifier for strings.
- *     std::string s = fmt::format(FMT_STRING("{:d}"), "foo");
+ *     fmt::string s = fmt::format(FMT_STRING("{:d}"), "foo");
  */
 #define FMT_STRING(s) FMT_STRING_IMPL(s, fmt::detail::compile_string)
 
+#if FMT_USE_EXCEPTIONS
 FMT_API auto vsystem_error(int error_code, string_view fmt, format_args args)
     -> std::system_error;
 
 /**
- * Constructs `std::system_error` with a message formatted with
+ * Constructs `fmt::system_error` with a message formatted with
  * `fmt::format(fmt, args...)`.
  * `error_code` is a system error code as given by `errno`.
  *
  * **Example**:
  *
- *     // This throws std::system_error with the description
+ *     // This throws fmt::system_error with the description
  *     //   cannot open file 'madeup': No such file or directory
  *     // or similar (system message may vary).
  *     const char* filename = "madeup";
@@ -4299,6 +4338,7 @@ auto system_error(int error_code, format_string<T...> fmt, T&&... args)
     -> std::system_error {
   return vsystem_error(error_code, fmt.str, vargs<T...>{{args...}});
 }
+#endif // FMT_USE_EXCEPTIONS
 
 /**
  * Formats an error message for an error returned by an operating system or a
@@ -4322,7 +4362,7 @@ FMT_API void report_system_error(int error_code, const char* message) noexcept;
 
 template <typename Locale, FMT_ENABLE_IF(detail::is_locale<Locale>::value)>
 inline auto vformat(const Locale& loc, string_view fmt, format_args args)
-    -> std::string {
+    -> fmt::string {
   auto buf = memory_buffer();
   detail::vformat_to(buf, fmt, args, detail::locale_ref(loc));
   return {buf.data(), buf.size()};
@@ -4331,7 +4371,7 @@ inline auto vformat(const Locale& loc, string_view fmt, format_args args)
 template <typename Locale, typename... T,
           FMT_ENABLE_IF(detail::is_locale<Locale>::value)>
 FMT_INLINE auto format(const Locale& loc, format_string<T...> fmt, T&&... args)
-    -> std::string {
+    -> fmt::string {
   return vformat(loc, fmt.str, vargs<T...>{{args...}});
 }
 
@@ -4363,7 +4403,7 @@ FMT_NODISCARD FMT_INLINE auto formatted_size(const Locale& loc,
   return buf.count();
 }
 
-FMT_API auto vformat(string_view fmt, format_args args) -> std::string;
+FMT_API auto vformat(string_view fmt, format_args args) -> fmt::string;
 
 /**
  * Formats `args` according to specifications in `fmt` and returns the result
@@ -4372,23 +4412,23 @@ FMT_API auto vformat(string_view fmt, format_args args) -> std::string;
  * **Example**:
  *
  *     #include <fmt/format.h>
- *     std::string message = fmt::format("The answer is {}.", 42);
+ *     fmt::string message = fmt::format("The answer is {}.", 42);
  */
 template <typename... T>
 FMT_NODISCARD FMT_INLINE auto format(format_string<T...> fmt, T&&... args)
-    -> std::string {
+    -> fmt::string {
   return vformat(fmt.str, vargs<T...>{{args...}});
 }
 
 /**
- * Converts `value` to `std::string` using the default format for type `T`.
+ * Converts `value` to `fmt::string` using the default format for type `T`.
  *
  * **Example**:
  *
- *     std::string answer = fmt::to_string(42);
+ *     fmt::string answer = fmt::to_string(42);
  */
 template <typename T, FMT_ENABLE_IF(std::is_integral<T>::value)>
-FMT_NODISCARD FMT_CONSTEXPR_STRING auto to_string(T value) -> std::string {
+FMT_NODISCARD FMT_CONSTEXPR_STRING auto to_string(T value) -> fmt::string {
   // The buffer should be large enough to store the number including the sign
   // or "false" for bool.
   char buffer[max_of(detail::digits10<T>() + 2, 5)];
@@ -4397,14 +4437,14 @@ FMT_NODISCARD FMT_CONSTEXPR_STRING auto to_string(T value) -> std::string {
 
 template <typename T, FMT_ENABLE_IF(detail::use_format_as<T>::value)>
 FMT_NODISCARD FMT_CONSTEXPR_STRING auto to_string(const T& value)
-    -> std::string {
+    -> fmt::string {
   return to_string(format_as(value));
 }
 
 template <typename T, FMT_ENABLE_IF(!std::is_integral<T>::value &&
                                     !detail::use_format_as<T>::value)>
 FMT_NODISCARD FMT_CONSTEXPR_STRING auto to_string(const T& value)
-    -> std::string {
+    -> fmt::string {
   auto buffer = memory_buffer();
   detail::write<char>(appender(buffer), value);
   return {buffer.data(), buffer.size()};

@@ -183,8 +183,8 @@ if (CMAKE_SYSTEM_NAME STREQUAL "MSDOS")
   message(STATUS "MSDOS is incompatible with gtest")
 endif ()
 
-# Get version from base.h
-file(READ include/fmt/base.h base_h)
+# Get version from fwd.h
+file(READ include/fmt/fwd.h base_h)
 if (NOT base_h MATCHES "FMT_VERSION ([0-9]+)([0-9][0-9])([0-9][0-9])")
   message(FATAL_ERROR "Cannot get FMT_VERSION from base.h.")
 endif ()
@@ -296,9 +296,9 @@ endfunction()
 
 # Define the fmt library, its includes and the needed defines.
 set(FMT_HEADERS)
-add_headers(FMT_HEADERS args.h base.h chrono.h color.h compile.h core.h format.h
-                        format-inl.h os.h ostream.h printf.h ranges.h std.h
-                        xchar.h)
+add_headers(FMT_HEADERS args.h base.h chrono.h color.h compile.h core.h fwd.h
+                        format.h format-inl.h os.h ostream.h printf.h ranges.h
+                        std.h xchar.h)
 set(FMT_SOURCES src/format.cc)
 
 add_module_library(fmt src/fmt.cc FALLBACK

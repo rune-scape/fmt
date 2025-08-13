@@ -13,7 +13,9 @@
 #  include <cerrno>  // errno
 #  include <climits>
 #  include <cmath>
-#  include <exception>
+#  if FMT_USE_EXCEPTIONS
+#    include <exception>
+#  endif
 #endif
 
 #if defined(_WIN32) && !defined(FMT_USE_WRITE_CONSOLE)
@@ -76,7 +78,7 @@ FMT_FUNC void do_report_error(format_func func, int error_code,
 inline void fwrite_all(const void* ptr, size_t count, FILE* stream) {
   size_t written = std::fwrite(ptr, 1, count, stream);
   if (written < count)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot write to file")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot write to file"));
 }
 
 #if FMT_USE_LOCALE
@@ -91,7 +93,7 @@ locale_ref::locale_ref(const Locale& loc) : locale_(&loc) {
 #else
 struct locale {};
 template <typename Char> struct numpunct {
-  auto grouping() const -> std::string { return "\03"; }
+  auto grouping() const -> fmt::string { return "\03"; }
   auto thousands_sep() const -> Char { return ','; }
   auto decimal_point() const -> Char { return '.'; }
 };
@@ -136,22 +138,22 @@ FMT_FUNC void report_error(const char* message) {
 #if FMT_USE_EXCEPTIONS
   // Use FMT_THROW instead of throw to avoid bogus unreachable code warnings
   // from MSVC.
-  FMT_THROW(format_error(message));
+  FMT_THROW_FORMAT_ERROR(message);
 #else
   fputs(message, stderr);
   abort();
 #endif
 }
 
+#if FMT_USE_LOCALE
 template <typename Locale> typename Locale::id format_facet<Locale>::id;
 
 template <typename Locale> format_facet<Locale>::format_facet(Locale& loc) {
   auto& np = detail::use_facet<detail::numpunct<char>>(loc);
   grouping_ = np.grouping();
-  if (!grouping_.empty()) separator_ = std::string(1, np.thousands_sep());
+  if (!grouping_.empty()) separator_ = fmt::string(1, np.thousands_sep());
 }
 
-#if FMT_USE_LOCALE
 template <>
 FMT_API FMT_FUNC auto format_facet<std::locale>::do_put(
     appender out, loc_value val, const format_specs& specs) const -> bool {
@@ -160,11 +162,13 @@ FMT_API FMT_FUNC auto format_facet<std::locale>::do_put(
 }
 #endif
 
+#if FMT_USE_EXCEPTIONS
 FMT_FUNC auto vsystem_error(int error_code, string_view fmt, format_args args)
     -> std::system_error {
   auto ec = std::error_code(error_code, std::generic_category());
   return std::system_error(ec, vformat(fmt, args));
 }
+#endif
 
 namespace detail {
 
@@ -1407,7 +1411,7 @@ template <> struct formatter<detail::bigint> {
 
 FMT_FUNC detail::utf8_to_utf16::utf8_to_utf16(string_view s) {
   for_each_codepoint(s, [this](uint32_t cp, string_view) {
-    if (cp == invalid_code_point) FMT_THROW(std::runtime_error("invalid utf8"));
+    if (cp == invalid_code_point) FMT_THROW_RUNTIME_ERROR("invalid utf8");
     if (cp <= 0xFFFF) {
       buffer_.push_back(static_cast<wchar_t>(cp));
     } else {
@@ -1422,12 +1426,14 @@ FMT_FUNC detail::utf8_to_utf16::utf8_to_utf16(string_view s) {
 
 FMT_FUNC void format_system_error(detail::buffer<char>& out, int error_code,
                                   const char* message) noexcept {
+#if FMT_USE_EXCEPTIONS
   FMT_TRY {
     auto ec = std::error_code(error_code, std::generic_category());
     detail::write(appender(out), std::system_error(ec, message).what());
     return;
   }
   FMT_CATCH(...) {}
+#endif
   format_error_code(out, error_code, message);
 }
 
@@ -1436,7 +1442,7 @@ FMT_FUNC void report_system_error(int error_code,
   do_report_error(format_system_error, error_code, message);
 }
 
-FMT_FUNC auto vformat(string_view fmt, format_args args) -> std::string {
+FMT_FUNC auto vformat(string_view fmt, format_args args) -> fmt::string {
   // Don't optimize the "{}" case to keep the binary size small and because it
   // can be better optimized in fmt::format anyway.
   auto buffer = memory_buffer();
@@ -1460,12 +1466,14 @@ template <typename T> struct span {
   size_t size;
 };
 
+#if FMT_USE_FILE_PRINT_BUFFER
 template <typename F> auto flockfile(F* f) -> decltype(_lock_file(f)) {
   _lock_file(f);
 }
 template <typename F> auto funlockfile(F* f) -> decltype(_unlock_file(f)) {
   _unlock_file(f);
 }
+#endif
 
 #ifndef getc_unlocked
 template <typename F> auto getc_unlocked(F* f) -> decltype(_fgetc_nolock(f)) {
@@ -1476,9 +1484,11 @@ template <typename F> auto getc_unlocked(F* f) -> decltype(_fgetc_nolock(f)) {
 template <typename F = FILE, typename Enable = void>
 struct has_flockfile : std::false_type {};
 
+#if FMT_USE_FILE_PRINT_BUFFER
 template <typename F>
 struct has_flockfile<F, void_t<decltype(flockfile(&std::declval<F&>()))>>
     : std::true_type {};
+#endif
 
 // A FILE wrapper. F is FILE defined as a template parameter to make system API
 // detection work.
@@ -1494,14 +1504,14 @@ template <typename F> class file_base {
   auto get() -> int {
     int result = getc_unlocked(file_);
     if (result == EOF && ferror(file_) != 0)
-      FMT_THROW(system_error(errno, FMT_STRING("getc failed")));
+      FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("getc failed"));
     return result;
   }
 
   // Puts the code unit back into the stream buffer.
   void unget(char c) {
     if (ungetc(c, file_) == EOF)
-      FMT_THROW(system_error(errno, FMT_STRING("ungetc failed")));
+      FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("ungetc failed"));
   }
 
   void flush() { fflush(this->file_); }
@@ -1657,6 +1667,7 @@ class file_print_buffer : public buffer<char> {
   explicit file_print_buffer(F*) : buffer(nullptr, size_t()) {}
 };
 
+#if FMT_USE_FILE_PRINT_BUFFER
 template <typename F>
 class file_print_buffer<F, enable_if_t<has_flockfile<F>::value>>
     : public buffer<char> {
@@ -1688,6 +1699,7 @@ class file_print_buffer<F, enable_if_t<has_flockfile<F>::value>>
     if (flush) fflush(file_);
   }
 };
+#endif
 
 #if !defined(_WIN32) || defined(FMT_USE_WRITE_CONSOLE)
 FMT_FUNC auto write_console(int, string_view) -> bool { return false; }

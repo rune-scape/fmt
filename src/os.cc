@@ -173,8 +173,8 @@ buffered_file::buffered_file(cstring_view filename, cstring_view mode) {
   FMT_RETRY_VAL(file_, FMT_SYSTEM(fopen(filename.c_str(), mode.c_str())),
                 nullptr);
   if (!file_)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot open file {}"),
-                           filename.c_str()));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot open file {}"),
+                           filename.c_str());
 }
 
 void buffered_file::close() {
@@ -182,7 +182,7 @@ void buffered_file::close() {
   int result = FMT_SYSTEM(fclose(file_));
   file_ = nullptr;
   if (result != 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot close file")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot close file"));
 }
 
 int buffered_file::descriptor() const {
@@ -198,7 +198,7 @@ int buffered_file::descriptor() const {
   int fd = fileno(file_);
 #endif
   if (fd == -1)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot get file descriptor")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot get file descriptor"));
   return fd;
 }
 
@@ -218,8 +218,8 @@ file::file(cstring_view path, int oflag) {
 #  else
   FMT_RETRY(fd_, FMT_POSIX_CALL(open(path.c_str(), oflag, default_open_mode)));
   if (fd_ == -1)
-    FMT_THROW(
-        system_error(errno, FMT_STRING("cannot open file {}"), path.c_str()));
+    FMT_THROW_SYSTEM_ERROR(
+        errno, FMT_STRING("cannot open file {}"), path.c_str());
 #  endif
 }
 
@@ -237,7 +237,7 @@ void file::close() {
   int result = FMT_POSIX_CALL(close(fd_));
   fd_ = -1;
   if (result != 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot close file")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot close file"));
 }
 
 long long file::size() const {
@@ -259,7 +259,7 @@ long long file::size() const {
   using Stat = struct stat;
   Stat file_stat = Stat();
   if (FMT_POSIX_CALL(fstat(fd_, &file_stat)) == -1)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot get file attributes")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot get file attributes"));
   static_assert(sizeof(long long) >= sizeof(file_stat.st_size),
                 "return type of file::size is not large enough");
   return file_stat.st_size;
@@ -270,7 +270,7 @@ size_t file::read(void* buffer, size_t count) {
   rwresult result = 0;
   FMT_RETRY(result, FMT_POSIX_CALL(read(fd_, buffer, convert_rwcount(count))));
   if (result < 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot read from file")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot read from file"));
   return detail::to_unsigned(result);
 }
 
@@ -278,7 +278,7 @@ size_t file::write(const void* buffer, size_t count) {
   rwresult result = 0;
   FMT_RETRY(result, FMT_POSIX_CALL(write(fd_, buffer, convert_rwcount(count))));
   if (result < 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot write to file")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot write to file"));
   return detail::to_unsigned(result);
 }
 
@@ -287,8 +287,8 @@ file file::dup(int fd) {
   // http://pubs.opengroup.org/onlinepubs/009695399/functions/dup.html
   int new_fd = FMT_POSIX_CALL(dup(fd));
   if (new_fd == -1)
-    FMT_THROW(system_error(
-        errno, FMT_STRING("cannot duplicate file descriptor {}"), fd));
+    FMT_THROW_SYSTEM_ERROR(
+        errno, FMT_STRING("cannot duplicate file descriptor {}"), fd);
   return file(new_fd);
 }
 
@@ -296,9 +296,9 @@ void file::dup2(int fd) {
   int result = 0;
   FMT_RETRY(result, FMT_POSIX_CALL(dup2(fd_, fd)));
   if (result == -1) {
-    FMT_THROW(system_error(
+    FMT_THROW_SYSTEM_ERROR(
         errno, FMT_STRING("cannot duplicate file descriptor {} to {}"), fd_,
-        fd));
+        fd);
   }
 }
 
@@ -316,8 +316,8 @@ buffered_file file::fdopen(const char* mode) {
   FILE* f = FMT_POSIX_CALL(fdopen(fd_, mode));
 #  endif
   if (!f) {
-    FMT_THROW(system_error(
-        errno, FMT_STRING("cannot associate stream with file descriptor")));
+    FMT_THROW_SYSTEM_ERROR(
+        errno, FMT_STRING("cannot associate stream with file descriptor"));
   }
   buffered_file bf(f);
   fd_ = -1;
@@ -329,8 +329,8 @@ file file::open_windows_file(wcstring_view path, int oflag) {
   int fd = -1;
   auto err = _wsopen_s(&fd, path.c_str(), oflag, _SH_DENYNO, default_open_mode);
   if (fd == -1) {
-    FMT_THROW(system_error(err, FMT_STRING("cannot open file {}"),
-                           detail::to_utf8<wchar_t>(path.c_str()).c_str()));
+    FMT_THROW_SYSTEM_ERROR(err, FMT_STRING("cannot open file {}"),
+                           detail::to_utf8<wchar_t>(path.c_str()).c_str());
   }
   return file(fd);
 }
@@ -348,7 +348,7 @@ pipe::pipe() {
   int result = FMT_POSIX_CALL(pipe(fds));
 #  endif
   if (result != 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot create pipe")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot create pipe"));
   // The following assignments don't throw.
   read_end = file(fds[0]);
   write_end = file(fds[1]);
@@ -368,7 +368,7 @@ long getpagesize() {
 #      endif
 
   if (size < 0)
-    FMT_THROW(system_error(errno, FMT_STRING("cannot get memory page size")));
+    FMT_THROW_SYSTEM_ERROR(errno, FMT_STRING("cannot get memory page size"));
   return size;
 #    endif
 }
