@@ -38,7 +38,14 @@ namespace detail {
 FMT_FUNC void assert_fail(const char* file, int line, const char* message) {
   // Use unchecked std::fprintf to avoid triggering another assertion when
   // writing to stderr fails.
-  fprintf(stderr, "%s:%d: assertion failed: %s", file, line, message);
+  //fprintf(stderr, "%s:%d: assertion failed: %s", file, line, message);
+  // avoid referencing printf to potentially save on executable size
+  fputs(file, stderr);
+  fputs(":", stderr);
+  format_int formatted_int{line};
+  fwrite(formatted_int.data(), 1, formatted_int.size(), stderr);
+  fputs(": assertion failed: ", stderr);
+  fputs(message, stderr);
   abort();
 }
 
