@@ -2036,11 +2036,6 @@ auto write_int(OutputIt out, UInt value, unsigned prefix,
 FMT_API auto write_loc(appender out, loc_value value, const format_specs& specs,
                        locale_ref loc) -> bool;
 #endif
-template <typename OutputIt>
-inline auto write_loc(OutputIt, const loc_value&, const format_specs&,
-                      locale_ref) -> bool {
-  return false;
-}
 
 template <typename UInt> struct write_int_arg {
   UInt abs_value;
@@ -2183,7 +2178,9 @@ template <typename Char, typename T,
 FMT_CONSTEXPR FMT_INLINE auto write(basic_appender<Char> out, T value,
                                     const format_specs& specs, locale_ref loc)
     -> basic_appender<Char> {
+#if FMT_USE_LOCALE
   if (specs.localized() && write_loc(out, value, specs, loc)) return out;
+#endif
   return write_int_noinline<Char>(out, make_write_int_arg(value, specs.sign()),
                                   specs);
 }
@@ -2197,7 +2194,9 @@ template <typename Char, typename OutputIt, typename T,
 FMT_CONSTEXPR FMT_INLINE auto write(OutputIt out, T value,
                                     const format_specs& specs, locale_ref loc)
     -> OutputIt {
+#if FMT_USE_LOCALE
   if (specs.localized() && write_loc(out, value, specs, loc)) return out;
+#endif
   return write_int<Char>(out, make_write_int_arg(value, specs.sign()), specs);
 }
 
@@ -3480,7 +3479,9 @@ template <typename Char, typename OutputIt, typename T,
           FMT_ENABLE_IF(is_floating_point<T>::value)>
 FMT_CONSTEXPR20 auto write(OutputIt out, T value, format_specs specs,
                            locale_ref loc = {}) -> OutputIt {
+#if FMT_USE_LOCALE
   if (specs.localized() && write_loc(out, value, specs, loc)) return out;
+#endif
 
   // Use signbit because value < 0 is false for NaN.
   sign s = detail::signbit(value) ? sign::minus : specs.sign();
