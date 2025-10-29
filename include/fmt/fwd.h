@@ -113,8 +113,17 @@
 #  define FMT_CONSTEXPR
 #endif
 
+// Detect c++17 if constexpr
+#if defined(__cpp_if_constexpr)
+#define FMT_IF_CONSTEXPR if constexpr
+#else
+#define FMT_IF_CONSTEXPR if
+#endif
+
 // Detect consteval, C++20 constexpr extensions and std::is_constant_evaluated.
-#if !defined(__cpp_lib_is_constant_evaluated)
+#ifdef FMT_USE_CONSTEVAL
+// Use the provided definition.
+#elif !defined(__cpp_lib_is_constant_evaluated)
 #  define FMT_USE_CONSTEVAL 0
 #elif FMT_CPLUSPLUS < 201709L
 #  define FMT_USE_CONSTEVAL 0
@@ -137,8 +146,8 @@
 #  define FMT_CONSTEVAL consteval
 #  define FMT_CONSTEXPR20 constexpr
 #else
-#  define FMT_CONSTEVAL
-#  define FMT_CONSTEXPR20
+#  define FMT_CONSTEVAL FMT_CONSTEXPR
+#  define FMT_CONSTEXPR20 FMT_CONSTEXPR
 #endif
 
 #ifndef FMT_USE_STD_STRING

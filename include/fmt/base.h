@@ -2449,7 +2449,7 @@ template <typename... T> struct fstring {
     static_assert(count<(is_view<remove_cvref_t<T>>::value &&
                          std::is_reference<T>::value)...>() == 0,
                   "passing views as lvalues is disallowed");
-    if (FMT_USE_CONSTEVAL) parse_format_string<char>(s, checker(s, arg_pack()));
+    FMT_IF_CONSTEXPR (FMT_USE_CONSTEVAL) parse_format_string<char>(s, checker(s, arg_pack()));
 #ifdef FMT_ENFORCE_COMPILE_STRING
     static_assert(
         FMT_USE_CONSTEVAL && sizeof(s) != 0,
@@ -2460,7 +2460,7 @@ template <typename... T> struct fstring {
             FMT_ENABLE_IF(std::is_convertible<const S&, string_view>::value)>
   FMT_CONSTEVAL FMT_ALWAYS_INLINE fstring(const S& s) : str(s) {
     auto sv = string_view(str);
-    if (FMT_USE_CONSTEVAL)
+    FMT_IF_CONSTEXPR (FMT_USE_CONSTEVAL)
       detail::parse_format_string<char>(sv, checker(sv, arg_pack()));
 #ifdef FMT_ENFORCE_COMPILE_STRING
     static_assert(
@@ -2654,7 +2654,7 @@ FMT_API void vprint_buffered(FILE* f, string_view fmt, format_args args);
 template <typename... T>
 FMT_INLINE void print(format_string<T...> fmt, T&&... args) {
   vargs<T...> va = {{args...}};
-  if (detail::const_check(!detail::use_utf8))
+  FMT_IF_CONSTEXPR (detail::const_check(!detail::use_utf8))
     return detail::vprint_mojibake(stdout, fmt.str, va, false);
   return detail::is_locking<T...>() ? vprint_buffered(stdout, fmt.str, va)
                                     : vprint(fmt.str, va);
@@ -2671,7 +2671,7 @@ FMT_INLINE void print(format_string<T...> fmt, T&&... args) {
 template <typename... T>
 FMT_INLINE void print(FILE* f, format_string<T...> fmt, T&&... args) {
   vargs<T...> va = {{args...}};
-  if (detail::const_check(!detail::use_utf8))
+  FMT_IF_CONSTEXPR (detail::const_check(!detail::use_utf8))
     return detail::vprint_mojibake(f, fmt.str, va, false);
   return detail::is_locking<T...>() ? vprint_buffered(f, fmt.str, va)
                                     : vprint(f, fmt.str, va);
