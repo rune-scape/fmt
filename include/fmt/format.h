@@ -3894,51 +3894,6 @@ void vformat_to(buffer<Char>& buf, basic_string_view<Char> fmt,
 
 FMT_BEGIN_EXPORT
 
-// A generic formatting context with custom output iterator and character
-// (code unit) support. Char is the format string code unit type which can be
-// different from OutputIt::value_type.
-template <typename OutputIt, typename Char> class generic_context {
- private:
-  OutputIt out_;
-  basic_format_args<generic_context> args_;
-  detail::locale_ref loc_;
-
- public:
-  using char_type = Char;
-  using iterator = OutputIt;
-  using parse_context_type FMT_DEPRECATED = parse_context<Char>;
-  template <typename T>
-  using formatter_type FMT_DEPRECATED = formatter<T, Char>;
-  enum { builtin_types = FMT_BUILTIN_TYPES };
-
-  constexpr generic_context(OutputIt out,
-                            basic_format_args<generic_context> args,
-                            detail::locale_ref loc = {})
-      : out_(out), args_(args), loc_(loc) {}
-  generic_context(generic_context&&) = default;
-  generic_context(const generic_context&) = delete;
-  void operator=(const generic_context&) = delete;
-
-  constexpr auto arg(int id) const -> basic_format_arg<generic_context> {
-    return args_.get(id);
-  }
-  auto arg(basic_string_view<Char> name) const
-      -> basic_format_arg<generic_context> {
-    return args_.get(name);
-  }
-  constexpr auto arg_id(basic_string_view<Char> name) const -> int {
-    return args_.get_id(name);
-  }
-
-  constexpr auto out() const -> iterator { return out_; }
-
-  void advance_to(iterator it) {
-    if (!detail::is_back_insert_iterator<iterator>()) out_ = it;
-  }
-
-  constexpr auto locale() const -> detail::locale_ref { return loc_; }
-};
-
 class loc_value {
  private:
   basic_format_arg<context> value_;

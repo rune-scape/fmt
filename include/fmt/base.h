@@ -341,7 +341,7 @@ template <typename T> struct is_contiguous : std::false_type {};
 
 class context;
 template <typename OutputIt, typename Char> class generic_context;
-template <typename Char> class parse_context;
+template <typename Char = char> class parse_context;
 
 // Longer aliases for C++20 compatibility.
 template <typename Char> using basic_format_parse_context = parse_context<Char>;
@@ -561,7 +561,7 @@ struct format_specs : basic_specs {
  * Parsing context consisting of a format string range being parsed and an
  * argument counter for automatic indexing.
  */
-template <typename Char = char> class parse_context {
+template <typename Char> class parse_context {
  private:
   basic_string_view<Char> fmt_;
   int next_arg_id_;
@@ -2187,6 +2187,11 @@ template <typename T> class basic_appender {
   FMT_CONSTEXPR20 auto operator++(int) -> basic_appender { return *this; }
 };
 
+template<typename T>
+basic_appender<T> back_inserter(detail::buffer<T> & buffer) {
+  return {buffer};
+}
+
 // A formatting argument. Context is a template parameter for the compiled API
 // where output can be unbuffered.
 template <typename Context> class basic_format_arg {
@@ -2367,46 +2372,58 @@ template <typename Context> class basic_format_args {
   }
 };
 
-// A formatting context.
-class context {
+// A generic formatting context with custom output iterator and character
+// (code unit) support. Char is the format string code unit type which can be
+// different from OutputIt::value_type.
+template <typename OutputIt, typename Char> class basic_format_context {
  private:
-  appender out_;
-  format_args args_;
+  OutputIt out_;
+  basic_format_args<basic_format_context> args_;
   FMT_NO_UNIQUE_ADDRESS detail::locale_ref loc_;
 
  public:
-  /// The character type for the output.
-  using char_type = char;
-
-  using iterator = appender;
-  using format_arg = basic_format_arg<context>;
-  using parse_context_type FMT_DEPRECATED = parse_context<>;
-  template <typename T> using formatter_type FMT_DEPRECATED = formatter<T>;
+  using char_type = Char;
+  using iterator = OutputIt;
+  using parse_context_type FMT_DEPRECATED = parse_context<Char>;
+  template <typename T>
+  using formatter_type FMT_DEPRECATED = formatter<T, Char>;
   enum { builtin_types = FMT_BUILTIN_TYPES };
 
-  /// Constructs a `context` object. References to the arguments are stored
-  /// in the object so make sure they have appropriate lifetimes.
-  FMT_CONSTEXPR context(iterator out, format_args args,
-                        detail::locale_ref loc = {})
+  FMT_CONSTEXPR basic_format_context(OutputIt out,
+                                basic_format_args<basic_format_context> args,
+                                detail::locale_ref loc = {})
       : out_(out), args_(args), loc_(loc) {}
-  context(context&&) = default;
-  context(const context&) = delete;
-  void operator=(const context&) = delete;
+  FMT_CONSTEXPR basic_format_context(basic_format_context&&) = default;
+  FMT_CONSTEXPR basic_format_context(const basic_format_context&) = delete;
+  FMT_CONSTEXPR basic_format_context & operator=(basic_format_context&&) = default;
+  FMT_CONSTEXPR basic_format_context & operator=(const basic_format_context&) = delete;
 
-  FMT_CONSTEXPR auto arg(int id) const -> format_arg { return args_.get(id); }
-  inline auto arg(string_view name) const -> format_arg {
+  FMT_CONSTEXPR auto arg(int id) const -> basic_format_arg<basic_format_context> {
+    return args_.get(id);
+  }
+
+  FMT_CONSTEXPR auto arg(basic_string_view<Char> name) const
+      -> basic_format_arg<basic_format_context> {
     return args_.get(name);
   }
-  FMT_CONSTEXPR auto arg_id(string_view name) const -> int {
+
+  FMT_CONSTEXPR auto arg_id(basic_string_view<Char> name) const -> int {
     return args_.get_id(name);
   }
-  auto args() const -> const format_args& { return args_; }
+  
+  FMT_CONSTEXPR auto args() const -> const basic_format_args<basic_format_context>& {
+    return args_;
+  }
 
-  // Returns an iterator to the beginning of the output range.
-  FMT_CONSTEXPR auto out() const -> iterator { return out_; }
+  FMT_CONSTEXPR auto out() const -> iterator {
+    return out_;
+  }
 
-  // Advances the begin iterator to `it`.
-  FMT_CONSTEXPR void advance_to(iterator) {}
+  FMT_CONSTEXPR void advance_to(iterator it) {
+    if (!detail::is_back_insert_iterator<iterator>()) {
+      out_ = it;
+    }
+  }
 
   FMT_CONSTEXPR auto locale() const -> detail::locale_ref { return loc_; }
 };
