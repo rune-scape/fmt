@@ -816,6 +816,16 @@ template <typename T, typename Char> constexpr auto has_formatter() -> bool {
   return decltype(has_formatter_impl<Char>(static_cast<T*>(nullptr)))::value;
 }
 
+template <typename Char, typename T, typename U = remove_const_t<T>>
+auto has_member_formatter_impl(T* p, parse_context<Char>* parse_ctx = nullptr, buffered_context<Char>* ctx = nullptr)
+    -> decltype(p->format(*parse_ctx, *ctx), std::true_type());
+template <typename Char> auto has_member_formatter_impl(...) -> std::false_type;
+
+// T can be const-qualified to check if it is const-formattable.
+template <typename T, typename Char> constexpr auto has_member_formatter() -> bool {
+  return decltype(has_member_formatter_impl<Char>(static_cast<T*>(nullptr)))::value;
+}
+
 // Maps formatting argument types to natively supported types or user-defined
 // types with formatters. Returns void on errors to be SFINAE-friendly.
 template <typename Char> struct type_mapper {
@@ -869,7 +879,7 @@ template <typename Char> struct type_mapper {
   static auto map(const T& x) -> decltype(map(formatter<T>::format_as(x)));
 
   template <typename T, FMT_ENABLE_IF(use_formatter<T>::value)>
-  static auto map(T&) -> conditional_t<has_formatter<T, Char>(), T&, void>;
+  static auto map(T&) -> conditional_t<has_formatter<T, Char>() || has_member_formatter<T, Char>(), T&, void>;
 
   template <typename T, FMT_ENABLE_IF(is_named_arg<T>::value)>
   static auto map(const T& named_arg) -> decltype(map(named_arg.value));
@@ -1809,6 +1819,39 @@ struct custom_tag {};
 #  define FMT_BUILTIN
 #endif
 
+template<typename Context, typename T, bool has_member_formatter>
+struct format_custom_impl;
+
+template<typename Context, typename T>
+struct format_custom_impl<Context, T, false> {
+  using char_type = typename Context::char_type;
+
+  // Formats an argument of a custom type, such as a user-defined class.
+  static void format_custom(void* arg, parse_context<char_type>& parse_ctx,
+                            Context& ctx) {
+    auto f = formatter<T, char_type>();
+    parse_ctx.advance_to(f.parse(parse_ctx));
+    using qualified_type =
+        conditional_t<has_formatter<const T, char_type>(), const T, T>;
+    // format must be const for compatibility with std::format and compilation.
+    const auto& cf = f;
+    ctx.advance_to(cf.format(*static_cast<qualified_type*>(arg), ctx));
+  }
+};
+
+template<typename Context, typename T>
+struct format_custom_impl<Context, T, true> {
+  using char_type = typename Context::char_type;
+
+  // Formats an argument of a custom type, such as a user-defined class.
+  static void format_custom(void* arg, parse_context<char_type>& parse_ctx,
+                            Context& ctx) {
+    using qualified_type =
+        conditional_t<has_member_formatter<const T, char_type>(), const T, T>;
+    static_cast<qualified_type*>(arg)->format(parse_ctx, ctx);
+  }
+};
+
 // A formatting argument value.
 template <typename Context> class value {
  public:
@@ -1921,7 +1964,7 @@ template <typename Context> class value {
       : named_args{args, size} {}
 
  private:
-  template <typename T, FMT_ENABLE_IF(has_formatter<T, char_type>())>
+  template <typename T, FMT_ENABLE_IF(has_formatter<T, char_type>() || has_member_formatter<T, char_type>())>
   FMT_CONSTEXPR value(T& x, custom_tag) {
     using value_type = remove_const_t<T>;
     // T may overload operator& e.g. std::vector<bool>::reference in libc++.
@@ -1935,28 +1978,14 @@ template <typename Context> class value {
         custom.value = const_cast<value_type*>(&x);
 #endif
     }
-    custom.format = format_custom<value_type, formatter<value_type, char_type>>;
+    custom.format = format_custom_impl<Context, value_type, has_member_formatter<T, char_type>()>::format_custom;
   }
 
-  template <typename T, FMT_ENABLE_IF(!has_formatter<T, char_type>())>
+  template <typename T, FMT_ENABLE_IF(!has_formatter<T, char_type>() && !has_member_formatter<T, char_type>())>
   FMT_CONSTEXPR value(const T&, custom_tag) {
     // Cannot format an argument; to make type T formattable provide a
     // formatter<T> specialization: https://fmt.dev/latest/api.html#udt.
     type_is_unformattable_for<T, char_type> _;
-  }
-
-  // Formats an argument of a custom type, such as a user-defined class.
-  // DEPRECATED! Formatter template parameter will be removed.
-  template <typename T, typename Formatter>
-  static void format_custom(void* arg, parse_context<char_type>& parse_ctx,
-                            Context& ctx) {
-    auto f = Formatter();
-    parse_ctx.advance_to(f.parse(parse_ctx));
-    using qualified_type =
-        conditional_t<has_formatter<const T, char_type>(), const T, T>;
-    // format must be const for compatibility with std::format and compilation.
-    const auto& cf = f;
-    ctx.advance_to(cf.format(*static_cast<qualified_type*>(arg), ctx));
   }
 };
 
