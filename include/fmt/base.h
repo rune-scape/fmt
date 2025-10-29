@@ -333,37 +333,6 @@ template <> struct is_xchar<char8_t> : std::true_type {};
 template <typename T> struct is_char : is_xchar<T> {};
 template <> struct is_char<char> : std::true_type {};
 
-template <typename T> class basic_appender;
-using appender = basic_appender<char>;
-
-// Checks whether T is a container with contiguous storage.
-template <typename T> struct is_contiguous : std::false_type {};
-
-class context;
-template <typename OutputIt, typename Char> class generic_context;
-template <typename Char = char> class parse_context;
-
-// Longer aliases for C++20 compatibility.
-template <typename Char> using basic_format_parse_context = parse_context<Char>;
-using format_parse_context = parse_context<char>;
-template <typename OutputIt, typename Char>
-using basic_format_context =
-    conditional_t<std::is_same<OutputIt, appender>::value, context,
-                  generic_context<OutputIt, Char>>;
-using format_context = context;
-
-template <typename Char>
-using buffered_context =
-    conditional_t<std::is_same<Char, char>::value, context,
-                  generic_context<basic_appender<Char>, Char>>;
-
-template <typename Context> class basic_format_arg;
-template <typename Context> class basic_format_args;
-
-// A separate type would result in shorter symbols but break ABI compatibility
-// between clang and gcc on ARM (#1919).
-using format_args = basic_format_args<context>;
-
 /// Reports a format error at compile time or, via a `format_error` exception,
 /// at runtime.
 // This function is intentionally not constexpr to give a compile-time error.

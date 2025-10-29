@@ -336,6 +336,31 @@ struct formatter {
   formatter() = delete;
 };
 
+template <typename T> class basic_appender;
+using appender = basic_appender<char>;
+
+// Checks whether T is a container with contiguous storage.
+template <typename T> struct is_contiguous : std::false_type {};
+
+template <typename Char = char> class parse_context;
+template <typename OutputIt, typename Char> class basic_format_context;
+using context = basic_format_context<appender, char>;
+
+// Longer aliases for C++20 compatibility.
+template <typename Char> using basic_format_parse_context = parse_context<Char>;
+using format_parse_context = parse_context<char>;
+using format_context = basic_format_context<appender, char>;
+
+template <typename Char>
+using buffered_context = basic_format_context<basic_appender<Char>, Char>;
+
+template <typename Context> class basic_format_arg;
+template <typename Context> class basic_format_args;
+
+// A separate type would result in shorter symbols but break ABI compatibility
+// between clang and gcc on ARM (#1919).
+using format_args = basic_format_args<context>;
+
 FMT_END_NAMESPACE
 
 #endif  // FMT_FWD_H_
